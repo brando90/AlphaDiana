@@ -2,13 +2,18 @@
 
 Usage:
     # With Gmail app password file (recommended):
-    python send_harbor_comparison_email.py --smtp-pass-file ~/keys/gmail_app_password.txt
+    python send_harbor_comparison_email.py --to you@example.com --smtp-user you@gmail.com \
+        --smtp-pass-file ~/keys/gmail_app_password.txt
 
     # With password directly:
-    python send_harbor_comparison_email.py --smtp-pass "your-app-password"
+    python send_harbor_comparison_email.py --to you@example.com --smtp-user you@gmail.com \
+        --smtp-pass "your-app-password"
 
     # Dry-run (saves to local file, no SMTP needed):
-    python send_harbor_comparison_email.py --dry-run
+    python send_harbor_comparison_email.py --to you@example.com --dry-run
+
+Recipient and sender can also be given via the EMAIL_TO and SMTP_USER environment
+variables; nothing is hardcoded and nothing is sent on import.
 
 Setup (Gmail App Password):
     1. Enable 2-Step Verification: https://myaccount.google.com/security
@@ -17,26 +22,15 @@ Setup (Gmail App Password):
 """
 import argparse
 import logging
+import os
 from pathlib import Path
 
-import importlib.util, sys
-_spec = importlib.util.spec_from_file_location(
-    "uutils.emailing",
-    "/usr/local/lib/python3.11/dist-packages/uutils/emailing.py",
-)
-_mod = importlib.util.module_from_spec(_spec)
-sys.modules["uutils.emailing"] = _mod
-_spec.loader.exec_module(_mod)
-send_email_smtp = _mod.send_email_smtp
-DryRunNotifier = _mod.DryRunNotifier
+from uutils.emailing import DryRunNotifier, send_email_smtp
 
-logging.basicConfig(level=logging.INFO)
-
-TO = "brando.science@gmail.com"
 SUBJECT = "AlphaDiana vs Harbor Framework: Key Differences Summary"
 
 BODY = """\
-Hi Brando,
+Hi,
 
 Here is a comparison of AlphaDiana vs Stanford's Harbor framework (https://www.harborframework.com/, fork: https://github.com/brando90/harbor).
 
@@ -195,18 +189,29 @@ Sent from AlphaDiana repo via uutils.emailing
 
 
 def main():
+    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description="Send Harbor comparison email")
-    parser.add_argument("--smtp-user", default="brando.science@gmail.com")
+    parser.add_argument("--to", default=os.environ.get("EMAIL_TO", ""),
+                        help="Recipient address (or set EMAIL_TO)")
+    parser.add_argument("--smtp-user", default=os.environ.get("SMTP_USER", ""),
+                        help="SMTP login / sender address (or set SMTP_USER)")
     parser.add_argument("--smtp-pass", default="")
     parser.add_argument("--smtp-pass-file", default="~/keys/gmail_app_password.txt")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
+
+    TO = args.to
+    if not TO:
+        parser.error("--to (or EMAIL_TO) is required")
 
     if args.dry_run:
         notifier = DryRunNotifier("artifacts/email_outbox")
         notifier.notify(TO, SUBJECT, BODY)
         print(f"Dry-run email saved to artifacts/email_outbox/")
         return
+
+    if not args.smtp_user:
+        parser.error("--smtp-user (or SMTP_USER) is required unless --dry-run")
 
     password = args.smtp_pass
     if not password:
